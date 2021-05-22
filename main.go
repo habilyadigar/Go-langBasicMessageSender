@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"html/template"
 	"log"
 	"net/http"
 	"time"
@@ -18,49 +18,64 @@ type User struct {
 	Message string `bson:"message,omitempty" json:"message,omitempty"`
 }
 
-var tpl *template.Template
-
-func init() {
-	tpl = template.Must(template.ParseGlob("templates/*.gohtml"))
-}
-
 func main() {
 
-	http.HandleFunc("/", index)
 	http.HandleFunc("/user", user)
 	http.ListenAndServe(":8080", nil)
-}
 
-func index(response http.ResponseWriter, request *http.Request) {
-	tpl.ExecuteTemplate(response, "index.gohtml", nil)
 }
 
 func user(response http.ResponseWriter, request *http.Request) {
-	if request.Method != "POST" {
-		http.Redirect(response, request, "/", http.StatusSeeOther)
+
+	setupCorsResponse(&response, request)
+	if (*request).Method == "OPTIONS" {
 		return
 	}
+
+	if request.Method != "POST" {
+		http.Redirect(response, request, "/user", http.StatusSeeOther)
+		return
+	}
+
+	var user User
+	err := json.NewDecoder(request.Body).Decode(&user)
+	if err != nil {
+		http.Error(response, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	databaseURL := "mongodb://127.0.0.1:27017"
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(databaseURL))
 	if err != nil {
 		log.Fatal("ERROR : " + err.Error())
 	}
+	//fmt.Println(p)
 	fmt.Println("Connected to MongoDB!")
-	fname := request.FormValue("name")
-	fmail := request.FormValue("mail")
-	fmessage := request.FormValue("message")
+
+	name := user.Name
+	mail := user.Mail
+	message := user.Message
 
 	collection := client.Database("go-lang-app").Collection("users")
-	anUser := User{
-		fname,
-		fmail,
-		fmessage,
+
+	userData := User{
+		name,
+		mail,
+		message,
 	}
-	insertResult, err := collection.InsertOne(context.TODO(), anUser)
+
+	insertResult, err := collection.InsertOne(context.TODO(), userData)
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("Inserted an User With This Id: ", insertResult.InsertedID)
-	tpl.ExecuteTemplate(response, "user.gohtml", anUser)
+	response.WriteHeader(200)
+}
+
+func setupCorsResponse(w *http.ResponseWriter, req *http.Request) {
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+	(*w).Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Authorization")
+
 }
